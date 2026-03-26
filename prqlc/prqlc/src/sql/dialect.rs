@@ -301,6 +301,18 @@ impl DialectHandler for GenericDialect {
 }
 
 impl DialectHandler for PostgresDialect {
+    fn translate_sql_array(
+        &self,
+        elements: Vec<sqlparser::ast::Expr>,
+    ) -> crate::Result<sqlparser::ast::Expr> {
+        use sqlparser::ast::Expr;
+
+        Ok(Expr::Array(sqlparser::ast::Array {
+            elem: elements,
+            named: true,
+        }))
+    }
+
     fn interval_quoting_style(&self, _dtf: &DateTimeField) -> IntervalQuotingStyle {
         IntervalQuotingStyle::ValueAndUnitQuoted
     }
@@ -436,6 +448,18 @@ impl DialectHandler for RedshiftDialect {
 }
 
 impl DialectHandler for GlareDbDialect {
+    fn translate_sql_array(
+        &self,
+        elements: Vec<sqlparser::ast::Expr>,
+    ) -> crate::Result<sqlparser::ast::Expr> {
+        use sqlparser::ast::Expr;
+
+        Ok(Expr::Array(sqlparser::ast::Array {
+            elem: elements,
+            named: true,
+        }))
+    }
+
     fn interval_quoting_style(&self, _dtf: &DateTimeField) -> IntervalQuotingStyle {
         IntervalQuotingStyle::ValueAndUnitQuoted
     }

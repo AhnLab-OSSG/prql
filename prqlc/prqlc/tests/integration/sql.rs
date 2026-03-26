@@ -1701,6 +1701,129 @@ fn test_in_values_err_01() {
 }
 
 #[test]
+fn test_array_has_clickhouse() {
+    assert_snapshot!(compile(r#"
+    prql target:sql.clickhouse
+
+    from employees
+  derive has_title = ([title, "CEO"] | list.has title)
+    "#).unwrap(), @r#"
+    SELECT
+      *,
+      has([title, 'CEO'], title) AS has_title
+    FROM
+      employees
+    "#);
+}
+
+#[test]
+fn test_array_has_any_duckdb() {
+    assert_snapshot!(compile(r#"
+    prql target:sql.duckdb
+
+    from employees
+  derive overlaps = ([title, country] | list.has_any [country, "CEO"])
+    "#).unwrap(), @r#"
+    SELECT
+      *,
+      list_has_any([title, country], [country, 'CEO']) AS "overlaps"
+    FROM
+      employees
+    "#);
+}
+
+#[test]
+fn test_array_has_all_bigquery() {
+    assert_snapshot!(compile(r#"
+    prql target:sql.bigquery
+
+    from employees
+  derive contains_all = ([title, country, "CEO"] | list.has_all [country, "CEO"])
+    "#).unwrap(), @r#"
+    SELECT
+      *,
+      NOT EXISTS (
+        SELECT
+          1
+        FROM
+          UNNEST([country, 'CEO']) AS __prql_array_right
+        WHERE
+          NOT EXISTS (
+            SELECT
+              1
+            FROM
+              UNNEST([title, country, 'CEO']) AS __prql_array_left
+            WHERE
+              __prql_array_left IS NOT DISTINCT
+            FROM
+              __prql_array_right
+          )
+      ) AS contains_all
+    FROM
+      employees
+    "#);
+}
+
+#[test]
+fn test_array_has_postgres() {
+    assert_snapshot!(compile(r#"
+    prql target:sql.postgres
+
+    from employees
+  derive has_title = ([title, "CEO"] | list.has title)
+    "#).unwrap(), @r#"
+    SELECT
+      *,
+      EXISTS (
+        SELECT
+          1
+        FROM
+          UNNEST(ARRAY [title, 'CEO']) AS __prql_array_item
+        WHERE
+          __prql_array_item IS NOT DISTINCT
+        FROM
+          (title)
+      ) AS has_title
+    FROM
+      employees
+    "#);
+}
+
+#[test]
+fn test_array_has_mysql_unsupported() {
+    assert_snapshot!(compile(r#"
+    prql target:sql.mysql
+
+    from employees
+    derive has_title = ([title, "CEO"] | list.has title)
+    "#).unwrap_err(), @r#"
+    Error:
+       ╭─[ :5:42 ]
+       │
+     5 │     derive has_title = ([title, "CEO"] | list.has title)
+       │                                          ───────┬──────
+       │                                                 ╰──────── `std.list.has` is not supported for dialect mysql
+    ───╯
+    "#);
+}
+
+#[test]
+fn test_array_has_generic_unsupported() {
+    assert_snapshot!(compile(r#"
+    from employees
+    derive has_title = ([title, "CEO"] | list.has title)
+    "#).unwrap_err(), @r#"
+    Error:
+       ╭─[ :3:42 ]
+       │
+     3 │     derive has_title = ([title, "CEO"] | list.has title)
+       │                                          ───────┬──────
+       │                                                 ╰──────── `std.list.has` is not supported for dialect generic
+    ───╯
+    "#);
+}
+
+#[test]
 fn test_interval() {
     let query = r###"
     from projects

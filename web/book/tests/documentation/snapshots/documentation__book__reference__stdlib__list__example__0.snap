@@ -1,0 +1,11 @@
+---
+source: web/book/tests/documentation/book.rs
+assertion_line: 75
+expression: "prql target:sql.duckdb\n\nfrom employees\nderive {\n  has_title = ([title, \"CEO\"] | list.has title),\n  has_any_role = ([title, country] | list.has_any [country, \"CEO\"]),\n}\n"
+---
+SELECT
+  *,
+  list_contains([title, 'CEO'], title) AS has_title,
+  list_has_any([title, country], [country, 'CEO']) AS has_any_role
+FROM
+  employees

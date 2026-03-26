@@ -66,6 +66,7 @@ language design decisions and formal specifications for parts of the language.
 
   - [Aggregation functions]()
   - [Date functions](./reference/stdlib/date.md)
+  - [List functions](./reference/stdlib/list.md)
   - [Mathematical functions](./reference/stdlib/math.md)
   - [Text functions](./reference/stdlib/text.md)
   - [Removing duplicates](./reference/stdlib/distinct.md)

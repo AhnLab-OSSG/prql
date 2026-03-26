@@ -254,6 +254,12 @@ module clickhouse {
 
   let regex_search = text pattern -> s"match({text:0}, {pattern:0})"
 
+  module list {
+    let has = needle haystack -> s"has({haystack:0}, {needle:0})"
+    let has_any = needle haystack -> s"hasAny({haystack:0}, {needle:0})"
+    let has_all = needle haystack -> s"hasAll({haystack:0}, {needle:0})"
+  }
+
   let read_csv = source -> s"file({source:0}, 'CSV')"
   let read_json = source -> s"file({source:0}, 'Json')"
   let read_parquet = source -> s"file({source:0}, 'Parquet')"
@@ -281,6 +287,12 @@ module duckdb {
   }
 
   let regex_search = text pattern -> s"REGEXP_MATCHES({text:0}, {pattern:0})"
+
+  module list {
+    let has = needle haystack -> s"list_contains({haystack:0}, {needle:0})"
+    let has_any = needle haystack -> s"list_has_any({haystack:0}, {needle:0})"
+    let has_all = needle haystack -> s"list_has_all({haystack:0}, {needle:0})"
+  }
 
   let read_csv = source -> s"read_csv_auto({source:0})"
   let read_json = source -> s"read_json_auto({source:0})"

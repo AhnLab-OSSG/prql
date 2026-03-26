@@ -198,6 +198,13 @@ module math {
 let as = `noresolve.type` column -> internal std.as
 let in = pattern value -> <bool> internal in
 
+## List functions
+module list {
+  let has = value arr -> <bool> internal std.list.has
+  let has_any = values arr -> <bool> internal std.list.has_any
+  let has_all = values arr -> <bool> internal std.list.has_all
+}
+
 ## Tuple functions
 let tuple_every = func list -> <bool> internal tuple_every
 let tuple_map = func fn <func> list -> internal tuple_map

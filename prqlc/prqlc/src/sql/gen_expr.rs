@@ -105,6 +105,21 @@ pub(super) fn translate_expr(expr: rq::Expr, ctx: &mut Context) -> Result<ExprOr
                 }
                 "std.concat" => return Ok(process_concat(&expr, ctx)?.into()),
                 "std.array_in" => return Ok(process_array_in(&expr, args, ctx)?.into()),
+                "std.list.has" => {
+                    if requires_custom_list_has(ctx.dialect_enum) {
+                        return process_array_has(&expr, "has", args, ctx);
+                    }
+                }
+                "std.list.has_any" => {
+                    if requires_custom_list_has(ctx.dialect_enum) {
+                        return process_array_has(&expr, "has_any", args, ctx);
+                    }
+                }
+                "std.list.has_all" => {
+                    if requires_custom_list_has(ctx.dialect_enum) {
+                        return process_array_has(&expr, "has_all", args, ctx);
+                    }
+                }
                 "std.date.to_text" => {
                     return Ok(process_date_to_text(&expr, name, args, ctx)?.into())
                 }
@@ -207,6 +222,70 @@ fn process_array_in(
                 .with_span(expr.span),
         ),
     }
+}
+
+fn process_array_has(
+    expr: &rq::Expr,
+    list_function_name: &str,
+    args: &[rq::Expr],
+    ctx: &mut Context,
+) -> Result<ExprOrSource> {
+    let [needle_expr, haystack_expr] = args else {
+        return Err(Error::new_simple(format!(
+            "args to `std.list.{}` must be two expressions",
+            list_function_name.to_lowercase()
+        ))
+        .with_span(expr.span));
+    };
+
+    let unsupported = || {
+        Error::new_simple(format!(
+            "`std.list.{}` is not supported for dialect {}",
+            list_function_name.to_lowercase(),
+            ctx.dialect_enum
+        ))
+        .with_span(expr.span)
+    };
+
+    let source = match ctx.dialect_enum {
+        crate::sql::Dialect::BigQuery | crate::sql::Dialect::Postgres => {
+            let haystack =
+                translate_operand(haystack_expr.clone(), false, 100, Associativity::Both, ctx)?
+                    .into_source();
+            let needle =
+                translate_operand(needle_expr.clone(), false, 100, Associativity::Both, ctx)?
+                    .into_source();
+
+            let text = match list_function_name {
+                "has" => format!(
+                    "EXISTS (SELECT 1 FROM UNNEST({haystack}) AS __prql_array_item WHERE __prql_array_item IS NOT DISTINCT FROM {needle})"
+                ),
+                "has_any" => format!(
+                    "EXISTS (SELECT 1 FROM UNNEST({haystack}) AS __prql_array_left JOIN UNNEST({needle}) AS __prql_array_right ON __prql_array_left IS NOT DISTINCT FROM __prql_array_right)"
+                ),
+                "has_all" => format!(
+                    "NOT EXISTS (SELECT 1 FROM UNNEST({needle}) AS __prql_array_right WHERE NOT EXISTS (SELECT 1 FROM UNNEST({haystack}) AS __prql_array_left WHERE __prql_array_left IS NOT DISTINCT FROM __prql_array_right))"
+                ),
+                _ => unreachable!(),
+            };
+
+            SourceExpr {
+                text,
+                binding_strength: 100,
+                window_frame: false,
+            }
+        }
+        _ => return Err(unsupported()),
+    };
+
+    Ok(ExprOrSource::Source(source))
+}
+
+fn requires_custom_list_has(dialect: crate::sql::Dialect) -> bool {
+    !matches!(
+        dialect,
+        crate::sql::Dialect::ClickHouse | crate::sql::Dialect::DuckDb
+    )
 }
 
 /// Translates PRQL date truncation to dialect-specific SQL.
