@@ -120,7 +120,7 @@ fn test_union_all_sqlite() {
     "###).unwrap_err(), @"
     Error: The dialect SQLiteDialect does not support EXCEPT ALL
     ↳ Hint: providing more column information will allow the query to be translated to an anti-join.
-    ")
+    ");
 }
 
 #[test]
@@ -137,7 +137,23 @@ fn test_regex_dialect() {
        │            ──────┬──────
        │                  ╰──────── operator std.regex_search is not supported for dialect mssql
     ───╯
-    ")
+    ");
+}
+
+#[test]
+fn test_ip_address_in_range_generic_dialect() {
+    assert_snapshot!(compile(r###"
+    from hosts
+    derive is_internal = (ip_address | network.is_ip_address_in_range "10.0.0.0/8")
+    "###).unwrap_err(), @r#"
+    Error:
+       ╭─[ :3:40 ]
+       │
+     3 │     derive is_internal = (ip_address | network.is_ip_address_in_range "10.0.0.0/8")
+       │                                        ─────────────────────┬─────────────────────
+       │                                                             ╰─────────────────────── operator std.network.is_ip_address_in_range is not supported for dialect generic
+    ───╯
+    "#);
 }
 
 #[test]

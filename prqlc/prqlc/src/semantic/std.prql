@@ -233,6 +233,11 @@ module date {
   let trunc = unit<text> column -> internal std.date.trunc
 }
 
+## Network functions
+module network {
+  let is_ip_address_in_range = prefix<text> column<text> -> <bool> internal std.network.is_ip_address_in_range
+}
+
 ## File-reading functions, primarily for DuckDB
 let read_parquet = func
   source <text>

@@ -3784,6 +3784,61 @@ fn test_target_clickhouse() {
 }
 
 #[test]
+fn test_ip_address_in_range_clickhouse() {
+    assert_snapshot!(compile(r#"
+    prql target:sql.clickhouse
+    from hosts
+    derive is_internal = (ip_address | network.is_ip_address_in_range "10.0.0.0/8")
+    "#).unwrap(), @"
+    SELECT
+      *,
+      isIPAddressInRange(ip_address, '10.0.0.0/8') AS is_internal
+    FROM
+      hosts
+    ");
+}
+
+#[test]
+fn test_ip_address_in_range_postgres() {
+    assert_snapshot!(compile(r#"
+    prql target:sql.postgres
+    from hosts
+    derive is_internal = (ip_address | network.is_ip_address_in_range "10.0.0.0/8")
+    "#).unwrap(), @"
+    SELECT
+      *,
+      CAST(ip_address AS inet) <<= CAST('10.0.0.0/8' AS cidr) AS is_internal
+    FROM
+      hosts
+    ");
+}
+
+#[test]
+fn test_ip_address_in_range_bigquery() {
+    assert_snapshot!(compile(r#"
+    prql target:sql.bigquery
+    from hosts
+    derive is_internal = (ip_address | network.is_ip_address_in_range "10.0.0.0/8")
+    "#).unwrap(), @"
+    SELECT
+      *,
+      NET.IP_TRUNC(
+        NET.SAFE_IP_FROM_STRING(ip_address),
+        SAFE_CAST(
+          SPLIT('10.0.0.0/8', '/') [SAFE_OFFSET(1)] AS INT64
+        )
+      ) = NET.IP_TRUNC(
+        NET.SAFE_IP_FROM_STRING(SPLIT('10.0.0.0/8', '/') [SAFE_OFFSET(0)]),
+        SAFE_CAST(
+          SPLIT('10.0.0.0/8', '/') [SAFE_OFFSET(1)] AS INT64
+        )
+      ) AS is_internal
+    FROM
+      hosts
+    ");
+}
+
+#[test]
 fn test_ident_escaping() {
     // Generic
     let query = r#"
