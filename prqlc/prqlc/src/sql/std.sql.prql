@@ -117,6 +117,7 @@ module text {
   let replace = pattern replacement column -> s"REPLACE({column:0}, {pattern:0}, {replacement:0})"
   let starts_with = prefix column -> s"{column:0} LIKE CONCAT({prefix:0}, '%')"
   let contains = substr column -> s"{column:0} LIKE CONCAT('%', {substr:0}, '%')"
+  let has_token = token column -> null
   let ends_with = suffix column -> s"{column:0} LIKE CONCAT('%', {suffix:0})"
 }
 
@@ -250,6 +251,10 @@ module clickhouse {
     let diff = unit start end -> s"dateDiff('{unit:0}', {start:0}, {end:0})"
     # Clickhouse uses now() for current timestamp
     let now = -> s"now()"
+  }
+
+  module text {
+    let has_token = token column -> s"hasToken({column:0}, {token:0})"
   }
 
   let regex_search = text pattern -> s"match({text:0}, {pattern:0})"

@@ -220,6 +220,7 @@ module text {
   let replace = pattern<text> replacement<text> column -> <text> internal std.text.replace
   let starts_with = prefix<text> column -> <bool> internal std.text.starts_with
   let contains = substr<text> column -> <bool> internal std.text.contains
+  let has_token = token<text> column -> <bool> internal std.text.has_token
   let ends_with = suffix<text> column -> <bool> internal std.text.ends_with
 }
 

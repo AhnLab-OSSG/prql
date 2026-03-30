@@ -5494,6 +5494,23 @@ fn test_regex_search() {
 }
 
 #[test]
+fn test_clickhouse_has_token() {
+    assert_snapshot!(compile_with_sql_dialect(r#"
+    from albums
+  filter (title | text.has_token "Black")
+    "#, sql::Dialect::ClickHouse).unwrap(),
+        @r"
+    SELECT
+      *
+    FROM
+      albums
+    WHERE
+      hasToken(title, 'Black')
+    "
+    );
+}
+
+#[test]
 fn test_intervals() {
     assert_snapshot!(compile(r#"
     from foo
