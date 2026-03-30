@@ -120,6 +120,11 @@ pub(super) fn translate_expr(expr: rq::Expr, ctx: &mut Context) -> Result<ExprOr
                         return process_array_has(&expr, "has_all", args, ctx);
                     }
                 }
+                "std.list.transform" => {
+                    return Ok(ExprOrSource::Source(process_list_transform(
+                        &expr, args, ctx,
+                    )?))
+                }
                 "std.date.to_text" => {
                     return Ok(process_date_to_text(&expr, name, args, ctx)?.into())
                 }
@@ -152,6 +157,71 @@ pub(super) fn translate_expr(expr: rq::Expr, ctx: &mut Context) -> Result<ExprOr
                 window_frame: false,
             })
         }
+        rq::ExprKind::Lambda(_) => {
+            return Err(Error::new_assert(
+                "lambda expressions must be handled by their parent operator".to_string(),
+            ))
+        }
+    })
+}
+
+fn process_list_transform(
+    expr: &rq::Expr,
+    args: &[rq::Expr],
+    ctx: &mut Context,
+) -> Result<SourceExpr> {
+    let [rq::Expr {
+        kind: rq::ExprKind::Lambda(lambda),
+        ..
+    }, list] = args
+    else {
+        return Err(Error::new_assert(
+            "std.list.transform expects a lambda and a list".to_string(),
+        ));
+    };
+
+    let list = translate_expr(list.clone(), ctx)?.into_source();
+    let body = translate_expr((*lambda.body).clone(), ctx)?.into_source();
+
+    let text = match ctx.dialect_enum {
+        crate::sql::Dialect::ClickHouse => {
+            format!("arrayMap({} -> {}, {})", lambda.param, body, list)
+        }
+        crate::sql::Dialect::DuckDb | crate::sql::Dialect::GlareDb => {
+            format!("list_transform({}, {} -> {})", list, lambda.param, body)
+        }
+        crate::sql::Dialect::Snowflake => {
+            format!("TRANSFORM({}, {} -> {})", list, lambda.param, body)
+        }
+        crate::sql::Dialect::BigQuery => {
+            format!(
+                "ARRAY(SELECT {body} FROM UNNEST({list}) AS {param} WITH OFFSET AS __prql_offset ORDER BY __prql_offset)",
+                body = body,
+                list = list,
+                param = lambda.param,
+            )
+        }
+        crate::sql::Dialect::Postgres => {
+            format!(
+                "ARRAY(SELECT {body} FROM UNNEST({list}) WITH ORDINALITY AS __prql_unnest({param}, __prql_ordinality) ORDER BY __prql_ordinality)",
+                body = body,
+                list = list,
+                param = lambda.param,
+            )
+        }
+        _ => {
+            return Err(Error::new_simple(format!(
+                "operator std.list.transform is not supported for dialect {}",
+                ctx.dialect_enum
+            ))
+            .with_span(expr.span))
+        }
+    };
+
+    Ok(SourceExpr {
+        text,
+        binding_strength: 100,
+        window_frame: false,
     })
 }
 

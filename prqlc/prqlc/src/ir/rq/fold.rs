@@ -221,6 +221,10 @@ pub fn fold_expr_kind<F: ?Sized + RqFold>(fold: &mut F, kind: ExprKind) -> Resul
             name,
             args: args.into_iter().map(|a| fold.fold_expr(a)).try_collect()?,
         },
+        ExprKind::Lambda(lambda) => ExprKind::Lambda(crate::ir::rq::Lambda {
+            param: lambda.param,
+            body: Box::new(fold.fold_expr(*lambda.body)?),
+        }),
         ExprKind::Param(id) => ExprKind::Param(id),
 
         ExprKind::Literal(_) => kind,

@@ -14,7 +14,7 @@ use crate::ir::generic::{ColumnSort, WindowFrame};
 use crate::ir::pl::TableExternRef::LocalTable;
 use crate::ir::pl::{self, Ident, Lineage, LineageColumn, PlFold, QueryDef};
 use crate::ir::rq::{
-    self, CId, RelationColumn, RelationLiteral, RelationalQuery, TId, TableDecl, Transform,
+    self, CId, Lambda, RelationColumn, RelationLiteral, RelationalQuery, TId, TableDecl, Transform,
 };
 use crate::pr::TyTupleField;
 use crate::semantic::write_pl;
@@ -171,6 +171,9 @@ struct Lowerer {
     /// describes what has certain id has been lowered to
     node_mapping: HashMap<usize, LoweredTarget>,
 
+    /// Names of lambda parameters currently valid while lowering scalar expressions.
+    lambda_params: Vec<String>,
+
     /// mapping from [Ident] of [crate::pr::TableDef] into [TId]s
     table_mapping: HashMap<Ident, TId>,
 
@@ -204,6 +207,7 @@ impl Lowerer {
             tid: IdGenerator::new(),
 
             node_mapping: HashMap::new(),
+            lambda_params: Vec::new(),
             table_mapping: HashMap::new(),
 
             window: None,
@@ -887,6 +891,12 @@ impl Lowerer {
                                 .with_span(span),
                         );
                     }
+                } else if self.lambda_params.iter().any(|param| param == &ident.name)
+                    && expr
+                        .target_id
+                        .is_none_or(|id| !self.node_mapping.contains_key(&id))
+                {
+                    rq::ExprKind::SString(vec![InterpolateItem::String(ident.name)])
                 } else if let Some(id) = expr.target_id {
                     // base case: column ref
                     let cid = self.lookup_cid(id, Some(&ident.name)).with_span(span)?;
@@ -940,20 +950,26 @@ impl Lowerer {
                     .try_collect()?,
             ),
             pl::ExprKind::RqOperator { name, args } => {
-                // Check for relation types used as operator arguments
-                for arg in &args {
-                    if arg.ty.as_ref().is_some_and(|x| x.is_relation()) {
-                        return Err(Error::new_simple(
-                            "table variable cannot be used as a scalar value",
-                        )
-                        .push_hint("use a join instead, or inline the subquery")
-                        .with_span(arg.span));
+                if name == "std.list.transform" {
+                    let args = self.lower_list_transform_args(args)?;
+
+                    rq::ExprKind::Operator { name, args }
+                } else {
+                    // Check for relation types used as operator arguments
+                    for arg in &args {
+                        if arg.ty.as_ref().is_some_and(|x| x.is_relation()) {
+                            return Err(Error::new_simple(
+                                "table variable cannot be used as a scalar value",
+                            )
+                            .push_hint("use a join instead, or inline the subquery")
+                            .with_span(arg.span));
+                        }
                     }
+
+                    let args = args.into_iter().map(|x| self.lower_expr(x)).try_collect()?;
+
+                    rq::ExprKind::Operator { name, args }
                 }
-
-                let args = args.into_iter().map(|x| self.lower_expr(x)).try_collect()?;
-
-                rq::ExprKind::Operator { name, args }
             }
             pl::ExprKind::Param(id) => rq::ExprKind::Param(id),
 
@@ -972,6 +988,9 @@ impl Lowerer {
                     .try_collect()?,
             ),
 
+            pl::ExprKind::FuncCall(func_call) if !self.lambda_params.is_empty() => {
+                self.lower_lambda_func_call(func_call, span)?.kind
+            }
             pl::ExprKind::FuncCall(_) | pl::ExprKind::Func(_) | pl::ExprKind::TransformCall(_) => {
                 log::debug!("cannot lower {expr:?}");
                 return Err(Error::new(Reason::Unexpected {
@@ -990,6 +1009,94 @@ impl Lowerer {
         };
 
         Ok(rq::Expr { kind, span })
+    }
+
+    fn lower_lambda_func_call(
+        &mut self,
+        func_call: pl::FuncCall,
+        span: Option<Span>,
+    ) -> Result<rq::Expr> {
+        if !func_call.named_args.is_empty() {
+            return Err(Error::new_simple(
+                "list.transform does not support named arguments in lambdas",
+            )
+            .with_span(span));
+        }
+
+        let operator_name = self
+            .lookup_internal_operator(func_call.name.as_ref())
+            .ok_or_else(|| {
+                Error::new(Reason::Unexpected {
+                    found: format!(
+                        "`{}`",
+                        write_pl(pl::Expr::new(pl::ExprKind::FuncCall(func_call.clone())))
+                    ),
+                })
+                .push_hint("this is probably a 'bad type' error (we are working on that)")
+                .with_span(span)
+            })?;
+
+        let args = func_call
+            .args
+            .into_iter()
+            .map(|arg| self.lower_expr(arg))
+            .try_collect()?;
+
+        Ok(rq::Expr {
+            kind: rq::ExprKind::Operator {
+                name: operator_name,
+                args,
+            },
+            span,
+        })
+    }
+
+    fn lower_list_transform_args(&mut self, args: Vec<pl::Expr>) -> Result<Vec<rq::Expr>> {
+        let [func, list]: [pl::Expr; 2] = args.try_into().map_err(|args: Vec<pl::Expr>| {
+            Error::new_assert(format!(
+                "std.list.transform expected 2 args after resolution, found {}",
+                args.len()
+            ))
+        })?;
+
+        let func_span = func.span;
+        let func = func.kind.into_func().map_err(|_| {
+            Error::new_simple("list.transform requires a function as the first argument")
+                .with_span(func_span)
+        })?;
+
+        Ok(vec![
+            self.lower_lambda(*func, func_span)?,
+            self.lower_expr(list)?,
+        ])
+    }
+
+    fn lower_lambda(&mut self, func: pl::Func, span: Option<Span>) -> Result<rq::Expr> {
+        if !func.named_params.is_empty() || !func.args.is_empty() || func.params.len() != 1 {
+            return Err(
+                Error::new_simple("list.transform requires a single-parameter function")
+                    .with_span(span),
+            );
+        }
+
+        let param = func.params[0]
+            .name
+            .split('.')
+            .next_back()
+            .unwrap()
+            .to_string();
+
+        self.lambda_params.push(param.clone());
+        let body = self.lower_expr(*func.body)?;
+        self.lambda_params.pop();
+
+        Ok(rq::Expr {
+            kind: rq::ExprKind::Lambda(Lambda {
+                param,
+                body: Box::new(body),
+            }),
+            span,
+        })
     }
 
     fn lower_interpolations(
@@ -1036,6 +1143,16 @@ impl Lowerer {
         };
 
         Ok(cid)
+    }
+
+    fn lookup_internal_operator(&self, expr: &pl::Expr) -> Option<String> {
+        let ident = expr.kind.as_ident()?;
+        let decl = self.root_mod.module.get(ident)?;
+        let expr = decl.kind.as_expr()?;
+        let func = expr.kind.as_func()?;
+        let internal = func.body.kind.as_internal()?;
+
+        Some(internal.clone())
     }
 }
 

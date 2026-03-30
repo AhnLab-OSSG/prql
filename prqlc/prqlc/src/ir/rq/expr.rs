@@ -14,6 +14,12 @@ pub struct Expr {
     pub span: Option<Span>,
 }
 
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct Lambda {
+    pub param: String,
+    pub body: Box<Expr>,
+}
+
 pub(super) type Range = generic::Range<Expr>;
 pub(super) type InterpolateItem = generic::InterpolateItem<Expr>;
 pub(super) type SwitchCase = generic::SwitchCase<Expr>;
@@ -38,6 +44,8 @@ pub enum ExprKind {
         name: String,
         args: Vec<Expr>,
     },
+
+    Lambda(Lambda),
 
     /// Placeholder for expressions provided after compilation.
     Param(String),

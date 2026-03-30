@@ -23,6 +23,73 @@ fn compile_with_sql_dialect(prql: &str, dialect: sql::Dialect) -> Result<String,
 }
 
 #[test]
+fn test_list_transform_per_dialect() {
+    let query = r#"
+    from invoices
+    select {transformed = list.transform (x -> x + invoice_id) [1, 2, 3]}
+    "#;
+
+    assert_snapshot!(compile_with_sql_dialect(query, sql::Dialect::DuckDb).unwrap(), @r#"
+    SELECT
+      list_transform([1, 2, 3], x -> x + invoice_id) AS transformed
+    FROM
+      invoices
+    "#);
+
+    assert_snapshot!(compile_with_sql_dialect(query, sql::Dialect::ClickHouse).unwrap(), @r#"
+    SELECT
+      arrayMap(x -> x + invoice_id, [1, 2, 3]) AS transformed
+    FROM
+      invoices
+    "#);
+
+    assert_snapshot!(compile_with_sql_dialect(query, sql::Dialect::Snowflake).unwrap(), @r#"
+    SELECT
+      TRANSFORM([1, 2, 3], x -> x + invoice_id) AS "transformed"
+    FROM
+      "invoices"
+    "#);
+
+    assert_snapshot!(compile_with_sql_dialect(query, sql::Dialect::BigQuery).unwrap(), @r#"
+    SELECT
+      ARRAY(
+        SELECT
+          x + invoice_id
+        FROM
+          UNNEST([1, 2, 3]) AS x WITH OFFSET AS __prql_offset
+        ORDER BY
+          __prql_offset
+      ) AS transformed
+    FROM
+      invoices
+    "#);
+
+    assert_snapshot!(compile_with_sql_dialect(query, sql::Dialect::Postgres).unwrap(), @r#"
+    SELECT
+      ARRAY(
+        SELECT
+          x + invoice_id
+        FROM
+          UNNEST(ARRAY [1, 2, 3]) WITH ORDINALITY AS __prql_unnest(x, __prql_ordinality)
+        ORDER BY
+          __prql_ordinality
+      ) AS transformed
+    FROM
+      invoices
+    "#);
+
+    assert_snapshot!(compile(query).unwrap_err(), @r#"
+    Error:
+       ╭─[ :3:27 ]
+       │
+     3 │     select {transformed = list.transform (x -> x + invoice_id) [1, 2, 3]}
+       │                           ───────────────────────┬──────────────────────
+       │                                                  ╰──────────────────────── operator std.list.transform is not supported for dialect generic
+    ───╯
+    "#);
+}
+
+#[test]
 fn test_stdlib() {
     assert_snapshot!(compile(r###"
     from employees

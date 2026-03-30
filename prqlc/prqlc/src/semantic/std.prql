@@ -203,6 +203,7 @@ module list {
   let has = value arr -> <bool> internal std.list.has
   let has_any = values arr -> <bool> internal std.list.has_any
   let has_all = values arr -> <bool> internal std.list.has_all
+  let transform = func fn <func> list -> internal std.list.transform
 }
 
 ## Tuple functions
